@@ -7,7 +7,6 @@ import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	_ "bazil.org/fuse/fs/fstestutil"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // todo: provide basic fs
@@ -16,17 +15,19 @@ import (
 // todo: implement limited caching (512MB)
 // todo: implement least-accessed pruning
 
-type HTTPEntry struct {
-	Name  string
-	Type  string // directory, file
-	MTime string
-	Size  uint
+type Entry struct {
+	Name     string
+	DType    fuse.DirentType
+	Type     string // directory, file
+	MTime    string
+	Size     uint
+	Children []fuse.Dirent
 }
 
-var DirCache = make(map[string][]HTTPEntry)
-var FileCache = make(map[string][]HTTPEntry)
+var Tree = make(map[string]Entry)
 
-var ROOT = "http://azure.shivver.io/music"
+var ROOT = "http://azure.shivver.io/media"
+var CACHE = "cache"
 
 func RequestRoute(route string) {
 	res, err := http.Get(ROOT + route)
@@ -36,25 +37,39 @@ func RequestRoute(route string) {
 
 	decoder := json.NewDecoder(res.Body)
 
-	entries := []HTTPEntry{}
+	entries := []Entry{}
 	decoder.Decode(&entries)
 
-	for _, entry := range entries {
-		if entry.Type == "directory" {
-			DirCache[route] = append(DirCache[route], entry)
-			DirCache[route+"/"+entry.Name] = []HTTPEntry{}
-		} else if entry.Type == "file" {
-			FileCache[route] = append(FileCache[route], entry)
-			FileCache[route+"/"+entry.Name] = []HTTPEntry{}
-		} else {
-			spew.Dump(entry)
+	var children = make([]fuse.Dirent, len(entries))
+
+	for i, entry := range entries {
+		children[i] = fuse.Dirent{
+			Inode: 2,
+			Name:  entry.Name,
 		}
+
+		if entry.Type == "directory" {
+			entry.DType = fuse.DT_Dir
+			children[i].Type = fuse.DT_Dir
+		} else if entry.Type == "file" {
+			entry.DType = fuse.DT_File
+			children[i].Type = fuse.DT_File
+		} else {
+			entry.DType = fuse.DT_File
+			children[i].Type = fuse.DT_Unknown
+		}
+
+		Tree[route+"/"+entry.Name] = entry
 	}
+
+	e := Tree[route]
+	e.Children = children
+	Tree[route] = e
 }
 
 func main() {
 	mountpoint := "mountpoint"
-	RequestRoute("/")
+	RequestRoute("")
 
 	c, err := fuse.Mount(
 		mountpoint,

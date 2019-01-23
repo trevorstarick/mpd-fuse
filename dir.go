@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"bazil.org/fuse"
@@ -25,17 +24,22 @@ func (d *Dir) Attr(ctx context.Context, a *fuse.Attr) error {
 var _ fs.NodeStringLookuper = (*Dir)(nil)
 
 func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	fmt.Println("lookup", d.location, name)
 	name = d.location + "/" + name
 
-	if _, exists := DirCache[name]; exists {
-		return &Dir{
-			location: name,
-		}, nil
-	} else if _, exists := FileCache[name]; exists {
-		return &File{
-			location: name,
-		}, nil
+	if content, exists := Tree[name]; exists {
+		switch content.DType {
+		case fuse.DT_File:
+			return &File{
+				location: name,
+				Size:     uint64(content.Size),
+			}, nil
+		case fuse.DT_Dir:
+			return &Dir{
+				location: name,
+			}, nil
+		default:
+			break
+		}
 	}
 
 	return nil, fuse.ENOENT
@@ -44,30 +48,9 @@ func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 var _ fs.HandleReadDirAller = (*Dir)(nil)
 
 func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	fmt.Println("readdirall", d.location)
-	var entries = []fuse.Dirent{}
-
-	if content, exists := DirCache[d.location]; !exists || len(content) == 0 {
+	if content, exists := Tree[d.location]; !exists || len(content.Children) == 0 {
 		RequestRoute(d.location)
 	}
 
-	for _, entry := range DirCache[d.location] {
-		e := fuse.Dirent{
-			Inode: 2,
-			Name:  entry.Name,
-			Type:  fuse.DT_Dir,
-		}
-		entries = append(entries, e)
-	}
-
-	for _, entry := range FileCache[d.location] {
-		e := fuse.Dirent{
-			Inode: 2,
-			Name:  entry.Name,
-			Type:  fuse.DT_File,
-		}
-		entries = append(entries, e)
-	}
-
-	return entries, nil
+	return Tree[d.location].Children, nil
 }
