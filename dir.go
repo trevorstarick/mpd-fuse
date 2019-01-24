@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"os"
 
 	"bazil.org/fuse"
@@ -24,7 +25,7 @@ func (d *Dir) Attr(ctx context.Context, a *fuse.Attr) error {
 var _ fs.NodeStringLookuper = (*Dir)(nil)
 
 func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	name = d.location + "/" + name
+	name = d.location + "/" + url.PathEscape(name)
 
 	if content, exists := Tree[name]; exists {
 		switch content.DType {

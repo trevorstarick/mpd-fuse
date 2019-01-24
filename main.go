@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -30,7 +31,8 @@ var ROOT = "http://azure.shivver.io/media"
 var CACHE = "cache"
 
 func RequestRoute(route string) {
-	res, err := http.Get(ROOT + route)
+	u := ROOT + route + "/"
+	res, err := http.Get(u)
 	if err != nil {
 		panic(err)
 	}
@@ -59,7 +61,7 @@ func RequestRoute(route string) {
 			children[i].Type = fuse.DT_Unknown
 		}
 
-		Tree[route+"/"+entry.Name] = entry
+		Tree[route+"/"+url.PathEscape(entry.Name)] = entry
 	}
 
 	e := Tree[route]
