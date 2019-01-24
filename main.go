@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -27,8 +28,12 @@ type Entry struct {
 
 var Tree = make(map[string]Entry)
 
-var ROOT = "http://azure.shivver.io/media"
+var ROOT = "http://azure.shivver.io/media/music"
 var CACHE = "cache"
+
+var crawlChan = make(chan string, 8192)
+
+var mutex sync.Mutex
 
 func RequestRoute(route string) {
 	u := ROOT + route + "/"
@@ -51,6 +56,8 @@ func RequestRoute(route string) {
 		}
 
 		if entry.Type == "directory" {
+			// recursively index directories
+			crawlChan <- (route + "/" + url.PathEscape(entry.Name))
 			entry.DType = fuse.DT_Dir
 			children[i].Type = fuse.DT_Dir
 		} else if entry.Type == "file" {
@@ -61,15 +68,28 @@ func RequestRoute(route string) {
 			children[i].Type = fuse.DT_Unknown
 		}
 
+		mutex.Lock()
 		Tree[route+"/"+url.PathEscape(entry.Name)] = entry
+		mutex.Unlock()
 	}
 
 	e := Tree[route]
 	e.Children = children
+	mutex.Lock()
 	Tree[route] = e
+	mutex.Unlock()
 }
 
 func main() {
+	// used for concurrent indexing
+	for i := 0; i < 128; i++ {
+		go func() {
+			for i := range crawlChan {
+				RequestRoute(i)
+			}
+		}()
+	}
+
 	mountpoint := "mountpoint"
 	RequestRoute("")
 
