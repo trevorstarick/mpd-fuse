@@ -1,3 +1,4 @@
 .vscode
 mountpoint
 cache
+mpd-fuse
