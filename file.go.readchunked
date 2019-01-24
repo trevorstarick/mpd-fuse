@@ -1,0 +1,104 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"path"
+	"syscall"
+
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
+	"golang.org/x/net/context"
+)
+
+type File struct {
+	fs.NodeRef
+	location string
+	fuse     *fs.Server
+	content  []byte
+	count    uint64
+	Size     uint64
+	Body     *io.ReadCloser
+	File     *os.File
+	Client   *http.Client
+}
+
+var _ fs.Node = (*File)(nil)
+
+func (f *File) Attr(ctx context.Context, a *fuse.Attr) error {
+	a.Inode = 2
+	a.Mode = 0444
+	a.Size = f.Size
+	return nil
+}
+
+var _ fs.NodeOpener = (*File)(nil)
+
+func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+	// todo: check if exists in cache
+	// todo: stream from remote
+	dirPath := path.Dir(CACHE + f.location)
+	os.MkdirAll(dirPath, 0777)
+
+	f.Client = &http.Client{}
+
+	out, err := os.Create(CACHE + f.location + ".tmp")
+	if err != nil {
+		panic(err)
+	}
+
+	defer out.Close()
+
+	res, err := http.Get(ROOT + f.location)
+	if err != nil {
+		panic(err)
+	}
+
+	defer res.Body.Close()
+
+	_, err = io.Copy(out, res.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	os.Rename(CACHE+f.location+".tmp", CACHE+f.location)
+
+	f.File, _ = os.Open(CACHE + f.location)
+
+	if !req.Flags.IsReadOnly() {
+		return nil, fuse.Errno(syscall.EACCES)
+	}
+	resp.Flags |= fuse.OpenKeepCache
+	return f, nil
+}
+
+var _ fs.Handle = (*File)(nil)
+
+var _ fs.HandleReader = (*File)(nil)
+
+func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+	rq, err := http.NewRequest("GET", ROOT+f.location, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	rq.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", req.Offset, req.Offset+int64(req.Size)-1))
+
+	rz, err := f.Client.Do(rq)
+	if err != nil {
+		panic(err)
+	}
+
+	data, err := ioutil.ReadAll(rz.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	defer rz.Body.Close()
+
+	resp.Data = data
+	return nil
+}

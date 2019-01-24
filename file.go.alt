@@ -1,0 +1,85 @@
+package main
+
+import (
+	"io"
+	"net/http"
+	"os"
+	"syscall"
+
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/jfbus/httprs"
+	"golang.org/x/net/context"
+)
+
+type File struct {
+	fs.NodeRef
+	location string
+	fuse     *fs.Server
+	content  []byte
+	count    uint64
+	Size     uint64
+	Body     *io.ReadCloser
+	File     *os.File
+	Client   *http.Client
+	Conn     *httprs.HttpReadSeeker
+}
+
+var _ fs.Node = (*File)(nil)
+
+func (f *File) Attr(ctx context.Context, a *fuse.Attr) error {
+	a.Inode = 2
+	a.Mode = 0444
+	a.Size = f.Size
+	return nil
+}
+
+var _ fs.NodeOpener = (*File)(nil)
+
+func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+	// todo: check if exists in cache
+	// todo: stream from remote
+	// dirPath := path.Dir(CACHE + f.location)
+	// os.MkdirAll(dirPath, 0777)
+
+	// var err error
+	// f.File, err = os.Create(CACHE + f.location)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	res, err := http.Get(ROOT + f.location)
+	if err != nil {
+		panic(err)
+	}
+
+	f.Conn = httprs.NewHttpReadSeeker(res)
+
+	if !req.Flags.IsReadOnly() {
+		return nil, fuse.Errno(syscall.EACCES)
+	}
+	resp.Flags |= fuse.OpenKeepCache
+	return f, nil
+}
+
+var _ fs.Handle = (*File)(nil)
+
+var _ fs.HandleReader = (*File)(nil)
+
+func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+	data := make([]byte, req.Size)
+
+	f.Conn.Seek(req.Offset, 0)
+
+	_, err := f.Conn.Read(data)
+	if err != nil && err != io.EOF {
+		panic(err)
+		return err
+	}
+
+	spew.Du  mp(data)
+
+	resp.Data = data
+	return nil
+}

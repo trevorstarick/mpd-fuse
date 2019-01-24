@@ -1,0 +1,107 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"path"
+	"strconv"
+	"syscall"
+
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
+	"golang.org/x/net/context"
+)
+
+const BUFSIZE = (4 * 1024) * 10
+
+type File struct {
+	fs.NodeRef
+	location string
+	fuse     *fs.Server
+	content  []byte
+	count    uint64
+	Size     uint64
+	Body     *io.ReadCloser
+	File     *os.File
+}
+
+var _ fs.Node = (*File)(nil)
+
+func (f *File) Attr(ctx context.Context, a *fuse.Attr) error {
+	a.Inode = 2
+	a.Mode = 0444
+	a.Size = f.Size
+	return nil
+}
+
+var _ fs.NodeOpener = (*File)(nil)
+
+func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+	// todo: check if exists in cache
+	// todo: stream from remote
+	dirPath := path.Dir(CACHE + f.location)
+	os.MkdirAll(dirPath, 0777)
+
+	// out, err := os.Create(CACHE + f.location + ".tmp")
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// defer out.Close()
+
+	client := http.Client{}
+
+	for i := 0; i <= int(f.Size/BUFSIZE); i++ {
+		out, _ := os.Create(CACHE + f.location + "." + strconv.Itoa(i))
+		rq, err := http.NewRequest("GET", ROOT+f.location, nil)
+		if err != nil {
+			panic(err)
+		}
+
+		rq.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", BUFSIZE*i, BUFSIZE*(i+1)))
+
+		rz, err := client.Do(rq)
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = io.Copy(out, rz.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		rz.Body.Close()
+		out.Close()
+	}
+
+	// os.Rename(CACHE+f.location+".tmp", CACHE+f.location)
+
+	if !req.Flags.IsReadOnly() {
+		return nil, fuse.Errno(syscall.EACCES)
+	}
+	resp.Flags |= fuse.OpenKeepCache
+	return f, nil
+}
+
+var _ fs.Handle = (*File)(nil)
+
+var _ fs.HandleReader = (*File)(nil)
+
+func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+	i := int(req.Offset / BUFSIZE)
+	fmt.Println(req.Offset, i)
+	buf, _ := ioutil.ReadFile(CACHE + f.location + "." + strconv.Itoa(i))
+
+	off := int(req.Offset % BUFSIZE)
+	if off+req.Size > BUFSIZE {
+		fmt.Println(i, "++")
+		buff, _ := ioutil.ReadFile(CACHE + f.location + "." + strconv.Itoa(i+1))
+		buf = append(buf, buff[0:(off+req.Size-BUFSIZE)]...)
+	}
+
+	resp.Data = buf[off:]
+	return nil
+}
