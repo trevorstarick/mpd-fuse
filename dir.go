@@ -10,7 +10,8 @@ import (
 )
 
 type Dir struct {
-	location string
+	Filename string
+	Location string
 }
 
 var _ fs.Node = (*Dir)(nil)
@@ -25,18 +26,21 @@ func (d *Dir) Attr(ctx context.Context, a *fuse.Attr) error {
 var _ fs.NodeStringLookuper = (*Dir)(nil)
 
 func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	name = d.location + "/" + url.PathEscape(name)
+	filename := d.Filename + "/" + name
+	location := d.Location + "/" + url.PathEscape(name)
 
-	if content, exists := Tree[name]; exists {
+	if content, exists := Tree[location]; exists {
 		switch content.DType {
 		case fuse.DT_File:
 			return &File{
-				location: name,
+				Filename: filename,
+				Location: location,
 				Size:     uint64(content.Size),
 			}, nil
 		case fuse.DT_Dir:
 			return &Dir{
-				location: name,
+				Filename: filename,
+				Location: location,
 			}, nil
 		default:
 			break
@@ -49,9 +53,9 @@ func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 var _ fs.HandleReadDirAller = (*Dir)(nil)
 
 func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	if content, exists := Tree[d.location]; !exists || len(content.Children) == 0 {
-		RequestRoute(d.location)
+	if content, exists := Tree[d.Location]; !exists || len(content.Children) == 0 {
+		RequestRoute(d.Location)
 	}
 
-	return Tree[d.location].Children, nil
+	return Tree[d.Location].Children, nil
 }

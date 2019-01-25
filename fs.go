@@ -5,12 +5,16 @@ import (
 )
 
 // FS implements the hello world file system.
-type FS struct{}
+type FS struct {
+	Filename string
+	Location string
+}
 
 var _ fs.FS = (*FS)(nil)
 
 func (f *FS) Root() (fs.Node, error) {
 	return &Dir{
-		location: "",
+		Filename: f.Filename,
+		Location: "",
 	}, nil
 }

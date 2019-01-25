@@ -14,10 +14,9 @@ import (
 
 type File struct {
 	fs.NodeRef
-	location string
 	fuse     *fs.Server
-	content  []byte
-	count    uint64
+	Filename string
+	Location string
 	Size     uint64
 	Body     *io.ReadCloser
 	File     *os.File

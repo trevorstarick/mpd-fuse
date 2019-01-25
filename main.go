@@ -113,7 +113,9 @@ func main() {
 	defer c.Close()
 
 	srv := fs.New(c, nil)
-	filesys := &FS{}
+	filesys := &FS{
+		Filename: "cache",
+	}
 
 	if err := srv.Serve(filesys); err != nil {
 		panic(err)
