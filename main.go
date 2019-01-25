@@ -30,8 +30,7 @@ type Entry struct {
 
 var Tree = make(map[string]Entry)
 
-var ROOT = "http://azure.shivver.io/media/music"
-var CACHE = "cache"
+var ROOT = "http://azure.shivver.io/media"
 
 var crawlChan = make(chan string, 8192)
 
@@ -106,6 +105,7 @@ func main() {
 		fuse.Subtype("mpdfs"),
 		fuse.LocalVolume(),
 		fuse.VolumeName("MPD"),
+		fuse.AllowNonEmptyMount(), // used to do `ln -s` cache hack
 	)
 	if err != nil {
 		panic(err)
