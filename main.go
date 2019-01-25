@@ -17,6 +17,8 @@ import (
 // todo: implement limited caching (512MB)
 // todo: implement least-accessed pruning
 
+const CRAWL_ENABLED = false
+
 type Entry struct {
 	Name     string
 	DType    fuse.DirentType
@@ -57,7 +59,10 @@ func RequestRoute(route string) {
 
 		if entry.Type == "directory" {
 			// recursively index directories
-			crawlChan <- (route + "/" + url.PathEscape(entry.Name))
+			if CRAWL_ENABLED {
+				crawlChan <- (route + "/" + url.PathEscape(entry.Name))
+			}
+
 			entry.DType = fuse.DT_Dir
 			children[i].Type = fuse.DT_Dir
 		} else if entry.Type == "file" {
@@ -82,12 +87,14 @@ func RequestRoute(route string) {
 
 func main() {
 	// used for concurrent indexing
-	for i := 0; i < 128; i++ {
-		go func() {
-			for i := range crawlChan {
-				RequestRoute(i)
-			}
-		}()
+	if CRAWL_ENABLED {
+		for i := 0; i < 64; i++ {
+			go func() {
+				for u := range crawlChan {
+					RequestRoute(u)
+				}
+			}()
+		}
 	}
 
 	mountpoint := "mountpoint"
