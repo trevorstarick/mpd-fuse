@@ -22,6 +22,20 @@ type File struct {
 	File     *os.File
 }
 
+func (f *File) Download() {
+	res, err := http.Get(ROOT + f.Location)
+	if err != nil {
+		panic(err)
+	}
+
+	defer res.Body.Close()
+
+	_, err = io.Copy(f.File, res.Body)
+	if err != nil {
+		panic(err)
+	}
+}
+
 var _ fs.Node = (*File)(nil)
 
 func (f *File) Attr(ctx context.Context, a *fuse.Attr) error {
@@ -36,31 +50,27 @@ var _ fs.NodeOpener = (*File)(nil)
 func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	// todo: check if exists in cache
 	// todo: stream from remote
-	dirPath := path.Dir(CACHE + f.location)
-	os.MkdirAll(dirPath, 0777)
 
-	out, err := os.Create(CACHE + f.location + ".tmp")
-	if err != nil {
-		panic(err)
+	if _, err := os.Stat(f.Filename); os.IsNotExist(err) {
+		dirPath := path.Dir(f.Filename)
+		os.MkdirAll(dirPath, 0777)
+
+		var err error
+		f.File, err = os.Create(f.Filename)
+		if err != nil {
+			panic(err)
+		}
+
+		f.Download()
+
+	} else {
+		if f.File == nil {
+			f.File, err = os.Open(f.Filename)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
-
-	defer out.Close()
-
-	res, err := http.Get(ROOT + f.location)
-	if err != nil {
-		panic(err)
-	}
-
-	defer res.Body.Close()
-
-	_, err = io.Copy(out, res.Body)
-	if err != nil {
-		panic(err)
-	}
-
-	os.Rename(CACHE+f.location+".tmp", CACHE+f.location)
-
-	f.File, _ = os.Open(CACHE + f.location)
 
 	if !req.Flags.IsReadOnly() {
 		return nil, fuse.Errno(syscall.EACCES)
@@ -76,12 +86,14 @@ var _ fs.HandleReader = (*File)(nil)
 func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	data := make([]byte, req.Size)
 
-	f.File.Seek(req.Offset, io.SeekStart)
-
-	_, err := (*f.File).Read(data)
+	_, err := f.File.Seek(req.Offset, io.SeekStart)
 	if err != nil && err != io.EOF {
 		panic(err)
-		return err
+	}
+
+	_, err = f.File.Read(data)
+	if err != nil && err != io.EOF {
+		panic(err)
 	}
 
 	resp.Data = data
